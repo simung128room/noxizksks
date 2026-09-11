@@ -1,0 +1,111 @@
+@import "tailwindcss";
+
+@layer base {
+  :root {
+    --font-sans: 'Prompt', 'Noto Sans Thai', 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    --font-serif: 'Newsreader', 'Lora', 'Noto Serif Thai', Georgia, Cambria, 'Times New Roman', serif;
+    --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  }
+
+  *, ::before, ::after {
+    font-family: var(--font-sans);
+  }
+
+  html {
+    scroll-behavior: smooth;
+  }
+
+  body {
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+  }
+
+  input, textarea, button, select {
+    font-family: var(--font-sans);
+  }
+
+  code, kbd, pre, samp {
+    font-family: var(--font-mono) !important;
+  }
+
+  /* Custom Slim Scrollbar */
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background: rgba(150, 150, 160, 0.25);
+    border-radius: 9999px;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background: rgba(150, 150, 160, 0.45);
+  }
+
+  /* Text Selection */
+  ::selection {
+    background: rgba(139, 92, 246, 0.3);
+    color: inherit;
+  }
+}
+
+/* 60FPS Hardware-Accelerated Smooth Transitions */
+@keyframes smoothFadeIn {
+  from {
+    opacity: 0;
+    transform: translate3d(0, 10px, 0);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+@keyframes smoothScaleIn {
+  from {
+    opacity: 0;
+    transform: scale3d(0.97, 0.97, 1);
+  }
+  to {
+    opacity: 1;
+    transform: scale3d(1, 1, 1);
+  }
+}
+
+.animate-smooth-in {
+  animation: smoothFadeIn 0.24s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  transform: translateZ(0);
+  backface-visibility: hidden;
+  will-change: transform, opacity;
+}
+
+.animate-scale-in {
+  animation: smoothScaleIn 0.2s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  transform: translateZ(0);
+  backface-visibility: hidden;
+  will-change: transform, opacity;
+}
+
+.font-claude {
+  font-family: var(--font-serif);
+}
+
+@keyframes pulseSubtle {
+  0%, 100% {
+    opacity: 0.9;
+  }
+  50% {
+    opacity: 0.45;
+  }
+}
+
+.animate-pulse-subtle {
+  animation: pulseSubtle 1.8s ease-in-out infinite;
+}

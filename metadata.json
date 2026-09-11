@@ -1,0 +1,6 @@
+{
+  "name": "NOXIZ",
+  "description": "NOXIZ - แชทบอทธีมเรียบง่าย มินิมอล รวดเร็วและชาญฉลาด ขับเคลื่อนด้วย AI",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
