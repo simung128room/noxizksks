@@ -2,7 +2,7 @@ import express, { Request, Response, NextFunction } from 'express';
 import path from 'path';
 import dotenv from 'dotenv';
 import { createServer as createViteServer } from 'vite';
-import { streamModelSoup, streamSingleModel, getUnoRouterClient } from './server/modelSoup';
+import { streamModelSoup, streamSingleModel, getUnoRouterClient, getXkiroClient } from './server/modelSoup';
 
 dotenv.config();
 
@@ -100,7 +100,7 @@ app.post('/api/chat/stream', async (req, res) => {
 
   const runVisionFallback = async () => {
     try {
-      const client = getUnoRouterClient();
+      const client = getXkiroClient();
       const formattedContents = formatVisionContents(messages);
       const defaultSystemInstruction =
         systemInstruction ||
@@ -119,7 +119,7 @@ Guiding principles:
       try {
         streamResponse = await client.chat.completions.create(
           {
-            model: 'openai/gpt-4o-mini',
+            model: 'qwen/qwen3.8-max:free',
             messages: formattedContents as any,
             stream: true,
           },
@@ -127,9 +127,9 @@ Guiding principles:
         );
       } catch (primaryErr: any) {
         clearTimeout(timeoutId);
-        console.warn('GPT-4o-mini failed, fallback to Claude 3.5 Sonnet:', primaryErr?.message);
+        console.warn('Qwen 3.8 Max failed, fallback to DeepSeek v4 Flash:', primaryErr?.message);
         streamResponse = await client.chat.completions.create({
-          model: 'anthropic/claude-3.5-sonnet',
+          model: 'deepseek/deepseek-v4-flash',
           messages: formattedContents as any,
           stream: true,
         });
@@ -207,7 +207,7 @@ app.post('/api/chat', async (req, res) => {
   }
 
   try {
-    const client = getUnoRouterClient();
+    const client = getXkiroClient();
     const formattedContents = formatVisionContents(messages);
 
     const instruction =
@@ -219,16 +219,16 @@ app.post('/api/chat', async (req, res) => {
     let response: any;
     try {
       response = await client.chat.completions.create({
-        model: 'openai/gpt-4o-mini',
+        model: 'qwen/qwen3.8-max:free',
         messages: formattedContents as any,
       });
     } catch (primaryErr: any) {
       console.warn(
-        'Primary model unavailable in /api/chat, falling back to claude 3.5 sonnet:',
+        'Primary model unavailable in /api/chat, falling back to deepseek-v4-flash:',
         primaryErr?.message
       );
       response = await client.chat.completions.create({
-        model: 'anthropic/claude-3.5-sonnet',
+        model: 'deepseek/deepseek-v4-flash',
         messages: formattedContents as any,
       });
     }
