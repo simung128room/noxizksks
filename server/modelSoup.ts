@@ -68,7 +68,7 @@ export const MODEL_SOUP_LIST: ModelSoupCandidate[] = [
   },
 ];
 
-function getXkiroClient(): OpenAI {
+export function getXkiroClient(): OpenAI {
   const apiKey = process.env.XKIRO_API_KEY || 'sk-free-xkiro-default';
   return new OpenAI({
     baseURL: 'https://api.xkiro.com/v1',
@@ -76,7 +76,7 @@ function getXkiroClient(): OpenAI {
   });
 }
 
-function getUnoRouterClient(): OpenAI {
+export function getUnoRouterClient(): OpenAI {
   const apiKey =
     process.env.UNOROUTER_API_KEY ||
     'sk-bfl3aRv8LhkPxkTvwVxkJow4v1fj4e6VEWO1kzTWiHozmozs';

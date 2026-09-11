@@ -1,9 +1,8 @@
 import express, { Request, Response, NextFunction } from 'express';
 import path from 'path';
-import { GoogleGenAI } from '@google/genai';
 import dotenv from 'dotenv';
 import { createServer as createViteServer } from 'vite';
-import { streamModelSoup, streamSingleModel } from './server/modelSoup';
+import { streamModelSoup, streamSingleModel, getUnoRouterClient } from './server/modelSoup';
 
 dotenv.config();
 
@@ -30,37 +29,17 @@ app.use((err: any, req: Request, res: Response, next: NextFunction) => {
   res.status(500).json({ error: 'Internal server error', details: err?.message });
 });
 
-// Lazy GoogleGenAI client initialization
-let genAiClient: GoogleGenAI | null = null;
-function getGenAI(): GoogleGenAI {
-  const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) {
-    throw new Error('GEMINI_API_KEY is not configured in the environment.');
-  }
-  if (!genAiClient) {
-    genAiClient = new GoogleGenAI({
-      apiKey,
-      httpOptions: {
-        headers: {
-          'User-Agent': 'aistudio-build',
-        },
-      },
-    });
-  }
-  return genAiClient;
-}
-
 // Health check endpoint
 app.get('/api/health', (_req, res) => {
   res.json({
     status: 'ok',
-    hasApiKey: Boolean(process.env.GEMINI_API_KEY),
-    model: 'gemini-3.8-flash',
+    hasApiKey: Boolean(process.env.UNOROUTER_API_KEY || process.env.XKIRO_API_KEY),
+    model: 'gpt-4o-mini',
   });
 });
 
-// Helper to format messages with real image attachment support
-function formatGeminiContents(
+// Helper to format messages with real image attachment support for OpenAI format
+function formatVisionContents(
   messages: Array<{
     role: string;
     content: string;
@@ -68,7 +47,14 @@ function formatGeminiContents(
   }>
 ) {
   return messages.map((m) => {
-    const parts: any[] = [];
+    const role = m.role === 'assistant' ? 'assistant' : 'user';
+    const content: any[] = [];
+
+    const safeContent = typeof m.content === 'string' ? m.content.trim() : '';
+    if (safeContent) {
+      content.push({ type: 'text', text: safeContent });
+    }
+
     if (m.attachment && m.attachment.base64 && m.attachment.mimeType) {
       let cleanBase64 = String(m.attachment.base64 || '');
       if (cleanBase64.includes(';base64,')) {
@@ -78,27 +64,22 @@ function formatGeminiContents(
       }
       const trimmedBase64 = cleanBase64.trim();
       if (trimmedBase64) {
-        parts.push({
-          inlineData: {
-            mimeType: m.attachment.mimeType,
-            data: trimmedBase64,
+        content.push({
+          type: 'image_url',
+          image_url: {
+            url: `data:${m.attachment.mimeType};base64,${trimmedBase64}`,
           },
         });
       }
     }
-    const safeContent = typeof m.content === 'string' ? m.content.trim() : '';
-    if (safeContent) {
-      parts.push({ text: safeContent });
-    } else if (parts.length === 1 && parts[0].inlineData) {
-      // Default prompt if user only sent an image
-      parts.push({ text: 'ช่วยวิเคราะห์และอธิบายรูปภาพนี้โดยละเอียด' });
-    } else if (parts.length === 0) {
-      parts.push({ text: '' });
+
+    if (content.length === 1 && content[0].type === 'image_url') {
+      content.push({ type: 'text', text: 'ช่วยวิเคราะห์และอธิบายรูปภาพนี้โดยละเอียด' });
+    } else if (content.length === 0) {
+      content.push({ type: 'text', text: '' });
     }
-    return {
-      role: m.role === 'assistant' ? 'model' : 'user',
-      parts,
-    };
+
+    return { role, content };
   });
 }
 
@@ -117,56 +98,56 @@ app.post('/api/chat/stream', async (req, res) => {
   res.setHeader('Connection', 'keep-alive');
   res.flushHeaders?.();
 
-  const runGeminiFallback = async () => {
-    let ai: GoogleGenAI;
+  const runVisionFallback = async () => {
     try {
-      ai = getGenAI();
-    } catch (err: any) {
-      res.write(
-        `data: ${JSON.stringify({
-          text: 'ขออภัย ไม่สามารถเชื่อมต่อกับบริการ AI ได้ในขณะนี้ กรุณาตรวจสอบการตั้งค่า API Key',
-        })}\n\n`
-      );
-      return;
-    }
-
-    const formattedContents = formatGeminiContents(messages);
-    const defaultSystemInstruction =
-      systemInstruction ||
-      `You are NOXIZ, an ultra-intelligent AI assistant with deep analytical, code auditing, and reasoning capabilities.
+      const client = getUnoRouterClient();
+      const formattedContents = formatVisionContents(messages);
+      const defaultSystemInstruction =
+        systemInstruction ||
+        `You are NOXIZ, an ultra-intelligent AI assistant with deep analytical, code auditing, and reasoning capabilities.
 Guiding principles:
 1. Simplicity & Clarity: Deliver direct, well-structured, and accurate answers without conversational fluff.
 2. Formatting: Use clean Markdown formatting, inline code, or code blocks where appropriate.
 3. Language: Respond fluently and naturally in Thai (or English).`;
+      
+      // Inject system message
+      formattedContents.unshift({ role: 'system', content: [{ type: 'text', text: defaultSystemInstruction }] });
 
-    try {
       let streamResponse: any;
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 60000);
       try {
-        streamResponse = await ai.models.generateContentStream({
-          model: 'gemini-3.8-flash',
-          contents: formattedContents,
-          config: { systemInstruction: defaultSystemInstruction },
-        });
+        streamResponse = await client.chat.completions.create(
+          {
+            model: 'openai/gpt-4o-mini',
+            messages: formattedContents as any,
+            stream: true,
+          },
+          { signal: controller.signal }
+        );
       } catch (primaryErr: any) {
-        console.warn('Gemini 3.8 failed, fallback to 3.1:', primaryErr?.message);
-        streamResponse = await ai.models.generateContentStream({
-          model: 'gemini-3.1-flash-lite',
-          contents: formattedContents,
-          config: { systemInstruction: defaultSystemInstruction },
+        clearTimeout(timeoutId);
+        console.warn('GPT-4o-mini failed, fallback to Claude 3.5 Sonnet:', primaryErr?.message);
+        streamResponse = await client.chat.completions.create({
+          model: 'anthropic/claude-3.5-sonnet',
+          messages: formattedContents as any,
+          stream: true,
         });
       }
 
       for await (const chunk of streamResponse) {
-        const text = chunk.text;
+        clearTimeout(timeoutId);
+        const text = chunk.choices?.[0]?.delta?.content;
         if (text) {
           res.write(`data: ${JSON.stringify({ text })}\n\n`);
         }
       }
-    } catch (gErr: any) {
-      console.error('Gemini fallback stream error:', gErr);
+      clearTimeout(timeoutId);
+    } catch (err: any) {
+      console.error('Vision fallback stream error:', err);
       res.write(
         `data: ${JSON.stringify({
-          error: gErr?.message || 'Error occurred during generation',
+          error: err?.message || 'Error occurred during generation',
         })}\n\n`
       );
     }
@@ -177,9 +158,9 @@ Guiding principles:
       (m: any) => m.attachment && m.attachment.base64
     );
 
-    // If multimodal (has image attachment), use Gemini directly
+    // If multimodal (has image attachment) or standard fast model, use GPT-4o-mini directly
     if (hasAttachments || selectedModel === 'kirin-flash') {
-      await runGeminiFallback();
+      await runVisionFallback();
     } else if (selectedModel === 'kirin-think') {
       await streamSingleModel({
         modelId: 'deepseek-v4-pro', // use deepseek-v4-pro for 'think'
@@ -190,7 +171,7 @@ Guiding principles:
             res.write(`data: ${JSON.stringify({ text: chunk.text })}\n\n`);
           }
         },
-        geminiFallback: runGeminiFallback,
+        geminiFallback: runVisionFallback,
       });
     } else {
       // Default / kirin-ultra -> Run Model Soup across all 8 models (xkiro + unorouter pool)
@@ -202,7 +183,7 @@ Guiding principles:
             res.write(`data: ${JSON.stringify({ text: chunk.text })}\n\n`);
           }
         },
-        geminiFallback: runGeminiFallback,
+        geminiFallback: runVisionFallback,
       });
     }
 
@@ -226,35 +207,35 @@ app.post('/api/chat', async (req, res) => {
   }
 
   try {
-    const ai = getGenAI();
-    const formattedContents = formatGeminiContents(messages);
+    const client = getUnoRouterClient();
+    const formattedContents = formatVisionContents(messages);
 
     const instruction =
       systemInstruction ||
       'You are NOXIZ, a minimalist, direct, and intelligent AI assistant. Provide clear, concise, and structured answers in Thai or the language of the prompt.';
 
+    formattedContents.unshift({ role: 'system', content: [{ type: 'text', text: instruction }] });
+
     let response: any;
     try {
-      response = await ai.models.generateContent({
-        model: 'gemini-3.8-flash',
-        contents: formattedContents,
-        config: { systemInstruction: instruction },
+      response = await client.chat.completions.create({
+        model: 'openai/gpt-4o-mini',
+        messages: formattedContents as any,
       });
     } catch (primaryErr: any) {
       console.warn(
-        'Primary model unavailable in /api/chat, falling back to gemini-3.1-flash-lite:',
+        'Primary model unavailable in /api/chat, falling back to claude 3.5 sonnet:',
         primaryErr?.message
       );
-      response = await ai.models.generateContent({
-        model: 'gemini-3.1-flash-lite',
-        contents: formattedContents,
-        config: { systemInstruction: instruction },
+      response = await client.chat.completions.create({
+        model: 'anthropic/claude-3.5-sonnet',
+        messages: formattedContents as any,
       });
     }
 
-    res.json({ text: response.text || '' });
+    res.json({ text: response.choices?.[0]?.message?.content || '' });
   } catch (error: any) {
-    console.error('Gemini Error:', error);
+    console.error('Vision Error:', error);
     res.status(500).json({ error: error.message || 'Internal server error' });
   }
 });
